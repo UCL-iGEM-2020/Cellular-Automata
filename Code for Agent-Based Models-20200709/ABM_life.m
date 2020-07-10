@@ -1,16 +1,18 @@
 %% life agent based model
 function ABM_life(grid,ngen,pause_time)
 
+% pause time = how long between generations 
+
 % initialise agent and number_of_neighbours matrices
-M = randi(2,grid,grid)-1;
-nneigh = zeros(grid,grid);
+M = randi(2,grid,grid)-1; % grid of random integers 
+nneigh = zeros(grid,grid); % grid of zeros 
 
 %initialise matrix to store number of active cells
-activity = zeros(1,ngen);
+activity = zeros(1,ngen); % grid of zeros 
 
 % plot the initial agent matrix
 figure()
-colormap(gray(2));
+colormap(gray(2)); % color of figure 
 image(2*(1-M));
 
 % initialise plot for game of life
