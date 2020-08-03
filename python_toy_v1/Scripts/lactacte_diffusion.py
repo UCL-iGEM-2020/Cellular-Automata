@@ -9,12 +9,25 @@ def diffusion_update(diff_grid,diff_calc,grid,dt,h):
     D = 3.51*10**(-1)
     for i in range(grid):
         for j in range(grid):
-            if i==0 or j==0 or i==grid-1 or j==grid-1:
-                diff_grid[i,j]=0 #set lactate concentration at boundaries to zero
-                #diff_calc[i,j]=0
+            if i==0 and j==0:
+                diff_calc[i,j] = ((D*dt*(diff_grid[i+1,j] + diff_grid[i,grid-1] + diff_grid[i,j+1] + diff_grid[grid-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
+            elif i==grid-1 and j==grid-1:
+                diff_calc[i,j] = ((D*dt*(diff_grid[0,j] + diff_grid[i,grid-1] + diff_grid[i,0] + diff_grid[i-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
+            elif i==0 and j==grid-1:
+                diff_calc[i,j] = ((D*dt*(diff_grid[i+1,j] + diff_grid[i,j-1] + diff_grid[i,0] + diff_grid[grid-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
+            elif i==grid-1 and j==0:
+                diff_calc[i,j] = ((D*dt*(diff_grid[0,j] + diff_grid[i,grid-1] + diff_grid[i,j+1] + diff_grid[i-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
+            elif i==0: 
+                diff_calc[i,j] = ((D*dt*(diff_grid[i+1,j] + diff_grid[i,j-1] + diff_grid[i,j+1] + diff_grid[grid-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
+            elif j==0:
+                diff_calc[i,j] = ((D*dt*(diff_grid[i+1,j] + diff_grid[i,grid-1] + diff_grid[i,j+1] + diff_grid[i-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
+            elif i==grid-1:
+                diff_calc[i,j] = ((D*dt*(diff_grid[0,j] + diff_grid[i,j-1] + diff_grid[i,j+1] + diff_grid[i-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
+            elif j==grid-1:
+                diff_calc[i,j] = ((D*dt*(diff_grid[i+1,j] + diff_grid[i,j-1] + diff_grid[i,0] + diff_grid[i-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
             else:
-                a = ((D*dt*(diff_grid[i+1,j] + diff_grid[i,j-1] + diff_grid[i,j+1] + diff_grid[i-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
-                diff_calc[i,j] = a
+                diff_calc[i,j] = ((D*dt*(diff_grid[i+1,j] + diff_grid[i,j-1] + diff_grid[i,j+1] + diff_grid[i-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
+
     return diff_calc
 
 def diffusion_plot_relative(grid,t):
