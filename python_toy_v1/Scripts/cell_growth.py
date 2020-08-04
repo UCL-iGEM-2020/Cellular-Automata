@@ -12,7 +12,7 @@ def diffusion_update(diff_grid,diff_calc,grid,dt,h):
             if i==0 and j==0:
                 diff_calc[i,j] = ((D*dt*(diff_grid[i+1,j] + diff_grid[i,grid-1] + diff_grid[i,j+1] + diff_grid[grid-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
             elif i==grid-1 and j==grid-1:
-                diff_calc[i,j] = ((D*dt*(diff_grid[0,j] + diff_grid[i,grid-1] + diff_grid[i,0] + diff_grid[i-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
+                diff_calc[i,j] = ((D*dt*(diff_grid[0,j] + diff_grid[i,j-1] + diff_grid[i,0] + diff_grid[i-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
             elif i==0 and j==grid-1:
                 diff_calc[i,j] = ((D*dt*(diff_grid[i+1,j] + diff_grid[i,j-1] + diff_grid[i,0] + diff_grid[grid-1,j] - 4*diff_grid[i,j]))/h**2) + diff_grid[i,j] #finite difference method
             elif i==grid-1 and j==0:
