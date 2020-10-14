@@ -90,17 +90,17 @@ def mediator_diffusion(grid, med_grid, dt, h, M, r, bc):
 
 
     front_biofilm[:-1, :, :] = med_grid[1:, :, :]
-    front_biofilm[-1, :, :] = med_grid[-2, :, :] #+ 2*h*(r*h**2)/D_med_biofilm #2*(h*r)/D_med_biofilm #BV flux
+    front_biofilm[-1, :, :] = med_grid[-2, :, :] #No flux bc
 
     front_grid[:-1, :, :] = med_grid[1:, :, :]
-    front_grid[-1, :, :] = med_grid[-2, :, :] #+ 2*h*(r*h**2)/D_med #2 * (h * r) / D_med  # BV flux
+    front_grid[-1, :, :] = med_grid[-2, :, :] #No flux bc
 
     back[1:, :, :] = med_grid[:-1, :, :]
 
     if bc == 0:
         back[0, :, :] = back[1, :, :]
     else:
-        back[0, :, :] = bc #1.25*10**(-19) #med_grid[1, :, :] #0
+        back[0, :, :] = bc
 
 
     med_biofilm = ((D_med_biofilm * dt * (top + left + bottom + right + front_biofilm + back - 6 * med_grid)) / h ** 2) + med_grid
