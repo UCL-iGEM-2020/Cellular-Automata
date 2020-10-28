@@ -1,11 +1,20 @@
 import random
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib import cm
-#from figure_gif2 import figure_gif
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits import mplot3d
 import math
+import matplotlib.pyplot as plt
+import sys 
+import os
+
+def cells_per_agent(layers):
+    D = 1.855 * 10 ** (-9) # m^2 / sec https://link.springer.com/article/10.1007/s10953-005-6987-3
+    h = layers*5*(10**(-6))
+    n_cells = layers**3
+    dt = (h**2)/(6*D) - 0.1 * ((h**2)/(6*D))
+
+    print("Cells per agent: ", n_cells)
+    print("timestep: ", dt)
+
+    return h, n_cells, dt
 
 
 def lactate_input(bulk_mmol,boundary_cubes,bulk_cubes,production_per_timestep,stirred_cubes,diff_grid):
@@ -59,11 +68,13 @@ def diffusion_update(diff_grid, dt, h, bulk_mmol, grid, M):
 
     return diff_grid
 
-def mediator_diffusion(grid, med_grid, dt, h, M, r, bc):
+def mediator_diffusion(grid, med_grid, dt, h, M, bc):
     '''
     Function similar to the lactate diffusion function with a different boundary condition.
     To be used to update the oxidized and reduced mediator concentrations.
     The mediator is flavin mononucleotide (FMN)
+
+    Concentrations are in moles
     '''
     D_med = 0.43 * 10 ** (-9)  # m^2 per second
     D_med_biofilm = D_med/2
@@ -73,8 +84,7 @@ def mediator_diffusion(grid, med_grid, dt, h, M, r, bc):
     top = np.zeros((grid, grid, grid))
     bottom = np.zeros((grid, grid, grid))
     back = np.zeros((grid, grid, grid))
-    front_biofilm = np.zeros((grid, grid, grid))
-    front_grid = np.zeros((grid, grid, grid))
+    front = np.zeros((grid, grid, grid))
 
     top[:, 0, :] = med_grid[:, -1, :]
     top[:, 1:, :] = med_grid[:, :-1, :]
@@ -89,31 +99,20 @@ def mediator_diffusion(grid, med_grid, dt, h, M, r, bc):
     right[:, :, -1] = med_grid[:, :, 0]
 
 
-    front_biofilm[:-1, :, :] = med_grid[1:, :, :]
-    front_biofilm[-1, :, :] = med_grid[-2, :, :] #No flux bc
+    front[:-1, :, :] = med_grid[1:, :, :]
+    front[-1, :, :] = med_grid[-2, :, :] #+ 2*h*(r*h**2)/D_med_biofilm #2*(h*r)/D_med_biofilm #BV flux
 
-    front_grid[:-1, :, :] = med_grid[1:, :, :]
-    front_grid[-1, :, :] = med_grid[-2, :, :] #No flux bc
 
     back[1:, :, :] = med_grid[:-1, :, :]
+    back[0, :, :] = bc
 
-    if bc == 0:
-        back[0, :, :] = back[1, :, :]
-    else:
-        back[0, :, :] = bc
+    med_biofilm = ((D_med_biofilm * dt * (top + left + bottom + right + front + back - 6 * med_grid)) / h ** 2) + med_grid
 
-
-    med_biofilm = ((D_med_biofilm * dt * (top + left + bottom + right + front_biofilm + back - 6 * med_grid)) / h ** 2) + med_grid
-
-    med_grid = ((D_med * dt * (top + left + bottom + right + front_grid + back - 6 * med_grid)) / h ** 2) + med_grid
+    med_grid = ((D_med * dt * (top + left + bottom + right + front + back - 6 * med_grid)) / h ** 2) + med_grid
 
     # Update the grid to include concentrations for biofilm diffusion if there are cells present
     bool_biofilm = M > 0
     med_grid[bool_biofilm] = med_biofilm[bool_biofilm]
-
-    # bool_zero = med_grid < 0
-    # #actual_rate = med_grid[bool_zero]
-    # med_grid[bool_zero] = 0
 
     return med_grid
 
@@ -174,13 +173,13 @@ def compute_ratio(M,grid):
 
     return ratio_active_can
 
-def cell_behaviour(M,M2,diff_grid,time_growth_update,grid,h,ratio_active_can, ox_grid):
+def cell_behaviour(M,M2,diff_grid,time_growth_update,grid,h,ratio_active_can, ox_grid,n_cells):
 
     maximum_growth_rate=0.827
     lactate_half_saturation = 13.2 #mM
     mediator_half_saturation = 0.0001 #mM
-    mmol_per_cell=(0.00000000000049/(19.1*10**-3)) #https://onlinelibrary.wiley.com/doi/epdf/10.1002/bit.21101
-    maximum_mmol=mmol_per_cell*((time_growth_update/3600)*maximum_growth_rate)
+    mmol_per_agent=(0.00000000000049/(19.1*10**-3))*n_cells #https://onlinelibrary.wiley.com/doi/epdf/10.1002/bit.21101
+    maximum_mmol=mmol_per_agent*((time_growth_update/3600)*maximum_growth_rate)
     n=(3600/time_growth_update)
     uptake_grid = np.zeros((grid,grid,grid))
     nernst = CalculateNernst()
@@ -192,7 +191,7 @@ def cell_behaviour(M,M2,diff_grid,time_growth_update,grid,h,ratio_active_can, ox
 
                         # Computing growth rate
                         lactate_concentration=(diff_grid[k,i,j])/((h**3)*1000) #mM
-                        mediator_conc =(ox_grid[k,i,j])/((h**3)*1000) #mM
+                        mediator_conc =(ox_grid[k,i,j])/((h**3)) #mM
 
                         if k == grid-1:
                             growth_rate=maximum_growth_rate*(lactate_concentration/(lactate_concentration+lactate_half_saturation))*nernst
@@ -209,7 +208,7 @@ def cell_behaviour(M,M2,diff_grid,time_growth_update,grid,h,ratio_active_can, ox
                         divisions=((growth_rate*(time_growth_update/3600))*(ratio_active_can/prevent_compound))
                         
                         # Computing lactate consumption
-                        specific_mmol=mmol_per_cell*deterministic_divisions
+                        specific_mmol=mmol_per_agent*deterministic_divisions*n_cells
 
                         #Store specific lactate consumption in a grid so it can be used later
                         uptake_grid[k, i, j] = specific_mmol
@@ -220,19 +219,19 @@ def cell_behaviour(M,M2,diff_grid,time_growth_update,grid,h,ratio_active_can, ox
                         if M[k,i,j] == 1:
                             if random.random() <= prob_quiescence:
                                 M2[k,i,j] = 2
-                                print("Quiescence!")
+                                #print("Quiescence!")
                                 continue
 
                         # If cells are quiescent, check if there's enough lactate for them to go back to normal
                         if M[k,i,j] == 2:
-                            if random.random() >= prob_quiescence:
-                                print("Recovery!")
+                            if growth_rate >= (0.827*0.1):
+                                #print("Recovery!")
                                 M2[k,i,j] = 1
 
                         # If cell stays quiescent, there is a probability of it dying this timestep
                             else:
                                 if random.random() <= (time_growth_update/(3600*24)):  # Arbitrary, Pedro has to figure out
-                                    print("Death!")
+                                    #print("Death!")
                                     M2[k,i,j] = 3
                                     continue
                                 else:
@@ -325,8 +324,6 @@ def cell_behaviour(M,M2,diff_grid,time_growth_update,grid,h,ratio_active_can, ox
                                     if choice == 8:
                                         coordinates.remove(8)
                                         M2[k,i,j-1] = 1
-
-
     # Now copying all of the living cells from M to M2    
     
     bool_M2=M2 == 0
@@ -334,14 +331,13 @@ def cell_behaviour(M,M2,diff_grid,time_growth_update,grid,h,ratio_active_can, ox
                             
     return M2, diff_grid, uptake_grid
 
-
-def MaxDirectCurrent(grid, M):
+def MaxDirectCurrent(grid, M, h, layers):
     '''
     Calculates current output after each cell growth update for direct transfer
     '''
     n = 4  # Number of electrons produced per lactate
     F = 96485  # Faraday's constant C
-    L = 5 * 10 ** (-6)  # Biofilm thickness
+    L = h  # Biofilm thickness
     u_max = 0.827 / 3600  # units are s^-1
     Y = 19.1 #grams of dry cell per mol of lactate
 
@@ -349,21 +345,21 @@ def MaxDirectCurrent(grid, M):
     m = 0.49 * 10 ** (-12)  # mass of a cell in dry cell weight according to bionumbers = 0.28 pg
 
     # Calculate area using total anode surface being modelled
-    A = (grid* 5 * (10 ** (-6)))**2
+    A = (grid*h)**2
     V = A * L # Volume of monolayer on anode
 
     #Calculate concentration of active cells
     bool = M[grid-1] == 1
-    X = (m * np.sum(M[grid-1][bool]))/V
+    X = (m * (layers**2) * np.sum(M[grid-1][bool]))/V
     q_max = u_max/Y  # mol lactate per g of biomass
 
     j_max = y_s * q_max * X * L
 
     return j_max
 
-def TotalMaxCurrent(grid, M, h):
+def TotalMaxCurrent(grid, M, h, n_cells):
     '''
-        Calculates maximum current density in biofilm
+    Calculates maximum current density in biofilm
     '''
     n = 4  # Number of electrons produced per lactate
     F = 96485  # Faraday's constant
@@ -380,11 +376,11 @@ def TotalMaxCurrent(grid, M, h):
     active_cells = np.count_nonzero(M == 1, axis=0)
     total, n, L = BiofilmThickness(M, h)
 
-    X = (m * active_cells) / V  # Concentration of cells in each column
+    X = (m * active_cells * n_cells) / V  # Concentration of cells in each column
     q_max = u_max / Y  # mol lactate per g of biomass
 
     j_max = y_s * q_max * X * L  #Calculate j_max for each column
-    total_j_max = np.average(j_max)
+    total_j_max = np.sum(j_max)
     #print("Maximum current density", total_j_max)
 
     return total_j_max
@@ -402,15 +398,15 @@ def CalculateNernst():
     return nernst
 
 
-def MediatorConcentration(M, ox_grid, red_grid, uptake_grid, time_growth_update, diff_grid, h):
+def MediatorConcentration(M, ox_grid, red_grid, uptake_grid, time_growth_update, diff_grid, h, n_cells):
 
     # Calculate mediator secretion
     rate = 1.441 #mmol/gDW/h
-    m = 0.00000000000049 #g
-    mmol_secreted = (rate / 3600) * m  # mmol/s
-    mediator_secretion = (mmol_secreted/h**3) * 1000
+    m = 0.00000000000049 #g of each cell
+    mmol_secreted = (rate / 3600) * m * n_cells # mmol/s
+    mediator_secretion = (mmol_secreted/h**3) * 1000 #mM
     lactate_half_saturation = 13.2 #mM
-    lactate_concentration = (diff_grid/h**3)*1000
+    lactate_concentration = (diff_grid/h**3)*1000 #mM
     conc_secreted = mediator_secretion * (lactate_concentration / (lactate_concentration + lactate_half_saturation))
 
     #Calculate amount of moles secreted
@@ -418,16 +414,23 @@ def MediatorConcentration(M, ox_grid, red_grid, uptake_grid, time_growth_update,
 
     bool_mediator = M[:-1] == 1  # only alive cells will reduce the mediators
 
-    ox_grid[:-1][bool_mediator] += mol_secreted[:-1][bool_mediator] * time_growth_update
+    ox_grid[:-1][bool_mediator] = ox_grid[:-1][bool_mediator] + (mol_secreted[:-1][bool_mediator] * time_growth_update)
 
     # Calculate rate of reduction by the biofilm
     f = 1  #fraction of electrons used for mediator transfer
     # uptake grid is in mmol
     R_M = (4 / 2) * f * (uptake_grid * (10 ** -3)) * time_growth_update  # in mol
 
-    ox_grid[:-1][bool_mediator] -= R_M[:-1][bool_mediator]  # mol
+    #Check if rate is more than concentration available
+    check = ox_grid < R_M
+    R_M[check] = ox_grid[check]
 
+    negative_check = R_M < 0
+    R_M[negative_check] = 0
+
+    ox_grid[:-1][bool_mediator] -= R_M[:-1][bool_mediator]  # mol
     red_grid[:-1][bool_mediator] += R_M[:-1][bool_mediator]
+
 
     return ox_grid, red_grid
 
@@ -440,14 +443,13 @@ def BiofilmThickness(M, h):
     total = np.count_nonzero(M, axis = 0) # Total number of cells per column
 
     n = total > 0 #gives cells with thickness greater than zero
-    thickness = total * h  # individual thickness of grid
+    thickness = total * h # individual thickness of grid
 
     return total, n, thickness
 
-def ChargeTransfer(red_grid, ox_grid):
-    k = 1.6*10**(-5) #m/s
+def ChargeTransfer(red_grid, ox_grid, h):
+    k = 1.6*10**(-5) #m/s #heterogeneous reaction rate
     a = 0.5
-    h = 5*(10**(-6))
 
     n_e = 2 #Number of electrons transferred by mediator
     R = 8.31
@@ -461,8 +463,8 @@ def ChargeTransfer(red_grid, ox_grid):
     E_0 = -0.219 #V standard redox potential for mediator redox reaction
 
     #Assume oxidation and reduction occur reversibly at the anode surface
-    r_ox = ((red_grid[-1])/h**3)*(k)*np.exp((1-a)*charge*(E-E_0)) #rate of oxidation at the electrode surface
-    r_red = ((ox_grid[-1])/h**3)*(k)*np.exp(-a*charge*(E-E_0))
+    r_ox = (red_grid[-1]/h**3)*(k)*np.exp((1-a)*charge*(E-E_0)) #rate of oxidation at the electrode surface
+    r_red = (ox_grid[-1]/h**3)*(k)*np.exp(-a*charge*(E-E_0))
 
 
     r_ox_grid = r_ox - r_red
@@ -470,7 +472,7 @@ def ChargeTransfer(red_grid, ox_grid):
 
     return r_red_grid, r_ox_grid
 
-def MediatorTransfer(red_grid, ox_grid, grid, D_med, M, h):
+def MediatorTransfer(red_grid, ox_grid, grid, D_med, M, h, r_red_grid, r_ox_grid, n_cells):
     n_e = 2 #Number of electrons transferred by mediator
     F = 96485
 
@@ -494,9 +496,6 @@ def MediatorTransfer(red_grid, ox_grid, grid, D_med, M, h):
     flux = -(D_med * gradient[n]) / thickness[n]
     #print(thickness[n])
 
-    r_red_grid, r_ox_grid = ChargeTransfer(red_grid, ox_grid)
-
-
     j_M = F*n_e*flux
     j_M_r = F*n_e*(r_ox_grid[n])
 
@@ -504,11 +503,11 @@ def MediatorTransfer(red_grid, ox_grid, grid, D_med, M, h):
 
     j_M[boolean] = j_M_r[boolean]
 
-    j = np.average(j_M)
+    j = np.sum(j_M)
 
-    print("Flux:", np.average(flux))
-    print("Anode reaction rate:", np.average(r_ox_grid))
-    print("Total mediator current:", j, "\n")
+    # print("Flux:", np.average(flux))
+    # print("Anode reaction rate:", np.average(r_ox_grid))
+    # print("Total mediator current:", j, "\n")
     return j
 
 def ConductiveTransfer(M, h):
@@ -554,18 +553,17 @@ def plot_3D_CA(M,grid):
     
     return xdata, ydata, zdata, color
 
-def life_v7(grid, hours_of_simulation, time_growth_update):
+def life_v7(grid, hours_of_simulation, time_growth_update, layers):
     # PARAMETRES
 
     # lactate diffusion, retrieved from https://www.sciencedirect.com/science/article/pii/S0960852412007985?via%3Dihub
-        
-    dt=0.002 # can't be bigger than 0.0022461814914645096 secs for h = 5*(10**(-6)) and current diffusion coefficient
-    h=5*(10**(-6)) # Size of each square, metres
+
+    h, n_cells, dt = cells_per_agent(layers)    
     
     # lactate input and chamber configuration
     
     lactate_production_coculture = 8.2132 # mmol of lactate per grams of AFDCW per hour
-    coculture_steady_state = 0.6 # grams of AFDCW
+    coculture_steady_state = 0.4 # grams of AFDCW
     anode_surface = 0.01178 # m^2
     anode_volume = 0.09817 # litres
     volume_of_chamber = 250 / 1000 # litres
@@ -580,7 +578,7 @@ def life_v7(grid, hours_of_simulation, time_growth_update):
     bulk_cubes = n_cubes - grid*grid*grid*n_grids
     stirred_cubes = boundary_cubes + bulk_cubes
     
-    accumulation_time = 336 * 4   #hours
+    accumulation_time = 168 * 1 #hours
     accumulated_mmol = lactate_production_coculture*coculture_steady_state*accumulation_time #mmol
     initial_mmol = accumulated_mmol / n_cubes #mmol
     
@@ -592,24 +590,24 @@ def life_v7(grid, hours_of_simulation, time_growth_update):
     diff_grid = np.zeros((grid,grid,grid)) #grid with lactate concentrations
     diff_calc = np.zeros((grid,grid,grid)) #grid that stores changes
     
-    diff_grid[0:grid,0:grid,0:grid]=initial_mmol
-    diff_calc[0:grid,0:grid,0:grid]=initial_mmol
+    diff_grid[0:grid,0:grid,0:grid] = initial_mmol
+    diff_calc[0:grid,0:grid,0:grid] = initial_mmol
 
     # Set up mediator diffusion grid
 
-    ox_conc = 1.25*10**-19 #1 uM = 1*10^-3 mol/m^3
+    conc = 1.25*10**-19 #1 mM = 1*10^-3 mol/m^3
     ox_grid = np.zeros((grid, grid, grid))  # mol
-    ox_grid[:] = 1.25*10**-19 #0
+    ox_grid[:] = 0
     red_grid = np.zeros((grid, grid, grid))  # mol
-    red_grid[:] = ox_conc
+    red_grid[:] = conc #From Picoroneai 13 paper in nernst monod fitting paper
 
     D_med = 0.43 * 10 ** (-9)  # m^2 per second
     D_med_biofilm = D_med / 2
 
     # Set up agent grid
     M = np.zeros((grid,grid,grid))
-    M[-1, :] = 1
-    #M[(grid-1),(round(grid/2)-1):(round(grid/2)+1),(round(grid/2)-1):(round(grid/2)+1)] = 1
+    #M[-1, :] = 1
+    M[(grid-1),(round(grid/2)),(round(grid/2))] = 1
     
     # Setting up plots and animation
     
@@ -632,83 +630,89 @@ def life_v7(grid, hours_of_simulation, time_growth_update):
     ax8 = fig4.add_subplot(2,1,1)
     ax9 = fig4.add_subplot(2,1,2)
 
+    fig5 = plt.figure(figsize=(12, 8))
+    ax10 = fig5.add_subplot(1,1,1)
+
+    fig6 = plt.figure(figsize=(20, 20))
+    ax11 = fig6.add_subplot(3,1,1)
+
 
     cells_per_update=[]
     total_lactate=[]
     total_red_conc = []
     total_ox_conc = []
+    total_med_conc = []
     t_obs=[]
     thickness = []
     j_max_list = []
     MT = []
     I = []
     MaxI = []
+    active_cells = []
+    quiescent_cells = []
+    dead_cells = []
 
     t=0
 
     bulk_mmol = initial_mmol
-    
+
     counter=1
+
+    r_red_grid, r_ox_grid = ChargeTransfer(red_grid, ox_grid, h)
+
     
     # Starting simulation for loop
     
     n_updates=(hours_of_simulation*3600)/time_growth_update
     hour_update=time_growth_update/3600
+
+    print("Concentration of reduced form:", np.sum(red_grid))
+    print("Total mediator concentration", np.sum(ox_grid) + np.sum(red_grid))
         
     for timesteps in range(math.ceil(n_updates)):
-        #ax2.clear() 
-        #ax2.set_title(f'time in hours = {(t):.2f}')
-        #xdata, ydata, zdata, color = plot_3D_CA(M,grid)
-        #ax2.set_xlim(0,grid)
-        #ax2.set_ylim(0,grid)
-        #ax2.set_zlim(0,grid)
-        #ax2.set_xlabel('bulk liquid - x axis')
-        #ax2.set_ylabel('anode surface - z axis')
-        #ax2.set_zlabel('anode surface - y axis')
-        #ax2.scatter(xdata, ydata, zdata, c=color, cmap='Greens', marker="s", s=100)
-        #anim.add_frame()
-        #print(np.sum(diff_grid))
         t += hour_update
         cells_per_update.append(np.count_nonzero(M == 1))
         t_obs.append(t)
 
         ratio_active_can = compute_ratio(M,grid)
         M2 = np.zeros((grid,grid,grid))
-        M2, diff_grid, uptake_grid = cell_behaviour(M,M2,diff_grid,time_growth_update,grid,h,ratio_active_can, ox_grid)
+        M2, diff_grid, uptake_grid = cell_behaviour(M,M2,diff_grid,time_growth_update,grid,h,ratio_active_can, ox_grid, n_cells)
         total_lactate.append(np.sum(diff_grid))
         M = M2
         #Current output update
 
-        C_red = red_grid/h**3
-        C_ox = ox_grid/h**3
+        C_red = red_grid*1000 #converts amount to mmol
+        C_ox = ox_grid*1000
 
         total_red_conc.append(np.sum(C_red))
         total_ox_conc.append(np.sum(C_ox))
+        total_med_conc.append(np.sum(C_red)+np.sum(C_ox))
         
         total, n, L = BiofilmThickness(M, h)
         thickness.append(np.average(L))
-        # print("Biofilm thickness:", np.average(L))
 
-        j = MaxDirectCurrent(grid, M)
+        j = MaxDirectCurrent(grid, M, h, layers)
         j_max_list.append(j)
 
-
-
-        ox_grid, red_grid = MediatorConcentration(M, ox_grid, red_grid, uptake_grid, time_growth_update, diff_grid, h)
-
-
-        m_current = MediatorTransfer(red_grid, ox_grid, grid, D_med_biofilm, M, h)
-
+        # print("Anode reaction rate:", np.average(r_ox_grid))
+        m_current = MediatorTransfer(red_grid, ox_grid, grid, D_med_biofilm, M, h, r_red_grid, r_ox_grid, n_cells)
         MT.append(m_current)
+
         total = j + m_current
         I.append(total)
 
-        max_current = TotalMaxCurrent(grid, M, h)
+        max_current = TotalMaxCurrent(grid, M, h, n_cells)
         MaxI.append(max_current)
+
+        ox_grid, red_grid = MediatorConcentration(M, ox_grid, red_grid, uptake_grid, time_growth_update, diff_grid, h, n_cells)  # moles
+        active_cells.append(np.count_nonzero(M == 1))
+        quiescent_cells.append(np.count_nonzero(M == 2))
+        dead_cells.append(np.count_nonzero(M == 3))
 
 
         if t >= counter:
-            print(f"Number of hours computed: ", counter, "/", hours_of_simulation)
+            print("Number of hours computed: ", counter, "/", hours_of_simulation)
+            print(diff_grid[1,1,1])
             counter += 1
         for i in range(round(time_growth_update/dt)):
             bulk_mmol = lactate_input(bulk_mmol,boundary_cubes,bulk_cubes,production_per_timestep,stirred_cubes,diff_grid)
@@ -716,74 +720,104 @@ def life_v7(grid, hours_of_simulation, time_growth_update):
             diff_calc = diffusion_update(diff_grid, dt, h, bulk_mmol, grid, M)
             diff_grid = diff_calc
 
-            r_red_grid, r_ox_grid = ChargeTransfer(red_grid, ox_grid)
+            ox_grid = mediator_diffusion(grid, ox_grid, dt, h, M, conc) #mol
+            red_grid = mediator_diffusion(grid, red_grid, dt, h, M, 0) #mol
 
-            ox_grid = mediator_diffusion(grid, ox_grid, dt, h, M, r_ox_grid, ox_conc)
-            red_grid = mediator_diffusion(grid, red_grid, dt, h, M, r_red_grid, 0)
+            r_red_grid, r_ox_grid = ChargeTransfer(red_grid, ox_grid, h)
 
-            check = red_grid[-1] < r_ox_grid*dt*h**2
-            r_ox_grid[check] = red_grid[-1][check]/(dt*h**2)
-            r_red_grid[check] = -red_grid[-1][check]/(dt*h**2)
+            #Check if rate is more than concentration available
+            check = red_grid[-1] < r_ox_grid * dt * h ** 2
 
-            ox_grid[-1] += r_ox_grid * dt * (h**2)
+            r_ox_grid[check] = red_grid[-1][check] / (dt * h ** 2)
+            r_red_grid[check] = -red_grid[-1][check] / (dt * h ** 2)
+
+            negative_check = r_ox_grid < 0
+            r_ox_grid[negative_check] = 0
+            r_red_grid[negative_check] = 0
+
+            ox_grid[-1] += r_ox_grid * dt * (h ** 2)
             red_grid[-1] += r_red_grid * dt * (h ** 2)
+
+
+        # print("Concentration of reduced form:", np.sum(red_grid))
+        # print("Total mediator concentration", np.sum(ox_grid) + np.sum(red_grid))
 
 
     # Plotting results
     
     print("Total time in hours =", hours_of_simulation)
-    print("Total cells, final =", np.count_nonzero(M == 1))
+    print("Total agents, final =", np.count_nonzero(M == 1))
 
     
     #anim.show()  
 
     ax1.set_xlabel('Time in hours')
     ax1.set_ylabel('cells')
-    ax1.plot(t_obs,cells_per_update,'b-',label='Active cells')
+    ax1.plot(t_obs,cells_per_update, "#29cce6", label='Active cells')
 
     ax3.set_xlabel('Time in hours')
     ax3.set_ylabel('Total Lactate in the grid - mmol')
-    ax3.plot(t_obs,total_lactate,'b-')
+    ax3.plot(t_obs,total_lactate, "#29cce6")
 
-    ax4.plot(t_obs, I, 'b-', label='Total Current output')
+    ax4.plot(t_obs, I,"#29cce6", label='Total Current output')
     ax4.set_xlabel("Hours")
     ax4.set_ylabel("Total current density (A/m2)")
     ax4.set_title("Total Current output")
 
-    ax5.plot(t_obs, j_max_list, 'b-', label='Maximum direct current density')
+    ax5.plot(t_obs, j_max_list, "#29cce6", label='Maximum direct current density')
     ax5.set_xlabel("Hours")
     ax5.set_ylabel("Maximum current density (A/m2)")
     ax5.set_title("Maximum Direct Transfer current density")
 
-    ax6.plot(t_obs, MT, 'b-', label='Maximum current density')
+    ax6.plot(t_obs, MT, "#29cce6", label='Maximum current density')
     ax6.set_xlabel("Hours")
     ax6.set_ylabel("Mediator Transfer current density (A/m2)")
     ax6.set_title("Mediator Transfer current density")
 
-    ax7.plot(t_obs, MaxI, 'b-')
+    ax7.plot(t_obs, MaxI, "#29cce6")
     ax7.set_xlabel("Hours")
     ax7.set_ylabel("Maximum total current density (A/m2)")
     ax7.set_title("Maximum total current density")
 
 
-    ax8.plot(t_obs, thickness, 'b-', label='Maximum direct current density')
+    ax8.plot(t_obs, thickness, "#29cce6")
     ax8.set_xlabel("Hours")
     ax8.set_ylabel("Average biofilm thickness (m)")
     ax8.set_title("Biofilm Thickness")
 
 
-    ax9.plot(t_obs, total_ox_conc, t_obs, total_red_conc, 'b-', label='Maximum direct current density')
+    ax9.plot(t_obs, total_ox_conc, "#29cce6", label='Oxidized mediator')
+    ax9.plot(t_obs, total_red_conc, "#043854", label='Reduced mediator')
+    ax9.legend()
     ax9.set_xlabel("Hours")
-    ax9.set_ylabel("Mediator concentration (mol)")
+    ax9.set_ylabel("Mediator concentration (mmol)")
     ax9.set_title("Mediator Concentration")
+
+    ax10.plot(t_obs, total_med_conc, "#29cce6")
+    ax10.set_xlabel("Hours")
+    ax10.set_ylabel("Mediator concentration (mmol)")
+    ax10.set_title("Total mediator Concentration")
+
+    ax11.plot(t_obs, active_cells, label='Active cells')
+    ax11.plot(t_obs, quiescent_cells, label='Quiescent cells')
+    ax11.plot(t_obs, dead_cells, label='Dead cells')
+    ax11.legend()
+    ax11.set_xlabel("Hours")
+    ax11.set_ylabel("Agents")
+    ax11.set_title("Agent type over time")
+     
     plt.show()
 
     return I
 
-
-
+#life_v7(50,0.3,100)
+#life_v7(30,0.5,100)
 #life_v7(10,0.5,100)
-life_v7(10,1,100)
+#life_v7(10,1,100)
+# life_v7(10,4,100)
+
+life_v7(10,168*2,10,5)
+
 
 def expected_growth(initial_cells,hours_of_simulation):
     max_growth_rate=0.827
