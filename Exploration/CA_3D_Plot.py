@@ -3,11 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import math
-import sympy as sp
 
-#AwonABuromi,2TomLadBis00,.
-
-plotting_data = np.loadtxt('/Users/Oliver_Leblanc/Desktop/RUNS/RUN2/1week4.txt')
+plotting_data = np.loadtxt('/Users/Oliver_Leblanc/Desktop/RUNS/RUN2/1week2.txt')
 
 t_obs =  plotting_data[0,:]
 cells_per_update = plotting_data[1,:]
