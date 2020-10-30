@@ -3,9 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import math
-import sympy as sp
-
-#AwonABuromi,2TomLadBis00,.
 
 plotting_data = np.loadtxt('/Users/Oliver_Leblanc/Desktop/RUNS/RUN2/1week4.txt')
 
@@ -38,21 +35,6 @@ total_med_conc = np.delete(total_med_conc,[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
 active_cells = np.delete(active_cells,[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40])
 quiescent_cells = np.delete(quiescent_cells,[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40])
 dead_cells = np.delete(dead_cells,[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40])
-
-I_fit = np.polyfit(t_obs, I, 2)  # fitting the points to a polynomial function
-I_t = np.poly1d(I_fit)  # getting the object representing the polynomial
-
-# lets see what it looks like, might need to adjust the polynomial degree
-t_lim = np.linspace(0, 168, 1)
-
- #final put together of the equation:
-#sep = 0.014  # specific energy production kwh/m3
-#t = 168  # typical time needed to desalinate in our conditions (h)
-
-#I_int = sp.integrate(I_t, t)
-#ndr = E_0/sep*I_int/t
-
-#print(ndr)
 
 fig1 = plt.figure(figsize=(12,8))
 ax1=fig1.add_subplot(1,1,1)
